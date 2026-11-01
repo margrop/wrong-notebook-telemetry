@@ -6,7 +6,7 @@
 
 ## 开发状态
 
-本提交提供服务骨架、批量 ingest、真实 libSQL 事务聚合、正式迁移、健康检查、隐私说明、测试与 CI。每日维护与看板按 [服务端设计](doc/SERVER_DESIGN.md) 在后续提交实现。尚未部署或公开发布。
+已提供批量 ingest、真实 libSQL 事务聚合、正式迁移、健康检查，以及每日清理、存储快照和预算保护。私有看板与登录按 [服务端设计](doc/SERVER_DESIGN.md) 在后续提交实现。尚未部署或公开发布。
 
 ## 本地开发
 
@@ -27,6 +27,12 @@ npm run dev
 `POST /api/v1/ingest` 不鉴权，只接受实例服务端 JSON；存在 Origin 头返回 403。最多 64KB、100 条，按 UTC 日期聚合，未知字段拒收。响应含 accepted/rejected/minIntervalSec；部分条目非法仍返回 200。无可信代理 IP 时所有请求共享每分钟十次的限流桶。
 
 `GET /api/v1/health` 检查数据库与正式表是否可用。完整协议、匿名统计局限及原设计兼容决策见 [设计文档](doc/SERVER_DESIGN.md)，合成测试向量见 [contract-v1.json](tests/fixtures/contract-v1.json)。不要向生产服务发送测试数据。
+
+## 每日维护与预算
+
+`GET /api/cron/maintain` 仅接受 `CRON_SECRET` Bearer 鉴权；Vercel 配置每天 UTC 03:17 调用，Hobby 实际触发可在该小时内浮动。保留今天及此前 399 天的日统计，清理过期错误指纹；任务可重复执行，不清零计数。自建服务需自行调度。
+
+维护保存聚合行数与数据库分配字节。可配置月批次、存储行数、数据库字节预算，70%/90% 阈值将最小发送间隔分别提高到至少 12/24 小时。默认不编造免费额度，应用计数不等于平台账单，仍需启用平台通知。配置与应急停用说明见 [部署文档](doc/DEPLOYMENT.md)。
 
 ## 验证
 

@@ -6,7 +6,7 @@ An independent anonymous telemetry collector for wrong-notebook, based on `doc/T
 
 ## Implementation status
 
-This commit provides the service foundation, batch ingest, transactional libSQL aggregation, versioned migrations, health checks, privacy information, tests and CI. Scheduled maintenance and the private dashboard follow the [server design](doc/SERVER_DESIGN.md) in later commits. No deployment or public publication has been performed.
+Implemented: batch ingest, transactional libSQL aggregation, versioned migrations, health checks, scheduled retention, storage snapshots and quota protection. Dashboard authentication follows the [server design](doc/SERVER_DESIGN.md) in a later commit. No deployment or public publication has been performed.
 
 ## Local development
 
@@ -27,6 +27,12 @@ Open `http://127.0.0.1:3000`. Migrations use libSQL write transactions and immut
 `POST /api/v1/ingest` accepts unauthenticated server-to-server JSON batches up to 64KB and 100 items. Requests with Origin are rejected. Extra fields and invalid items are rejected; valid items are aggregated by UTC day. A partially valid batch still returns 200 with accepted/rejected/minIntervalSec. Without a trusted proxy address, callers share one ten-request-per-minute bucket.
 
 `GET /api/v1/health` checks the actual database table. See the [design](doc/SERVER_DESIGN.md) for protocol details, compatibility decisions and anonymous-data limitations. [Contract vectors](tests/fixtures/contract-v1.json) are synthetic and must not be sent to production.
+
+## Maintenance and budgets
+
+`GET /api/cron/maintain` requires the configured CRON_SECRET as a Bearer token. Vercel schedules it daily at 03:17 UTC; Hobby execution may occur within that hour. It retains today plus 399 previous UTC days, removes stale fingerprints, and records storage snapshots without resetting ingest counters. Self-hosted deployments need an external scheduler.
+
+Optional monthly batch, stored-row and database-byte budgets trigger minimum sending intervals of 12/24 hours at 70%/90% utilization. No plan allowance is fabricated. Application counters are not platform billing metrics; enable provider usage notifications. See the [deployment guide](doc/DEPLOYMENT.md).
 
 ## Validation
 
