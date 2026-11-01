@@ -16,9 +16,9 @@
 
 ## 外部验证边界
 
-- 未创建或连接真实 Turso 库、未创建 Vercel 项目、未修改 DNS、未推送远程，也未与实例端队列联调。
+- 首次本地验收未创建或连接真实 Turso 库、未创建 Vercel 项目、未修改 DNS、未推送远程，也未与实例端队列联调。后续源码发布不会自动完成云端部署或实例端联调。
 - 尚未验证真实 Turso 网络延迟，不能把本地耗时当成远端性能。多行 upsert 将混合批次的聚合写语句限制为最多四条，以减少网络往返。
-- gitleaks 已配置到 GitHub CI；本地官方 release 资源下载超时，因此未运行 gitleaks。公开前仍应执行完整密钥扫描，不能以文件检查替代。
-- Node.js 22 的 GitHub CI 已配置；本轮实际本地执行版本为上面记录的 Node.js 26。
+- 首次本地验收时 gitleaks 官方 release 资源下载超时，未执行。后续发布前通过 Go 模块校验安装 gitleaks v8.30.1，并对全部可达 Git 历史执行 `gitleaks git --redact --log-opts=--all .`，结果无泄露；另通过完整历史隐私检查与公开文件检查。
+- Node.js 22 的 GitHub CI 已配置；首次实际本地执行版本为上面记录的 Node.js 26，远程运行结果以 GitHub Actions 对应提交为准。
 
 上线验收按 [部署文档](DEPLOYMENT.md) 执行，重点确认生产/预览库隔离、真实 HTTPS、平台限流、Cron 实际执行结果和实例队列行为。

@@ -12,7 +12,7 @@ An independent anonymous telemetry collector for wrong-notebook, based on `doc/T
 - Password-protected dashboard: approximate active instances, installations, versions/platforms, feature dimensions, AI success/latency, error trends, statuses and notes.
 - Versioned migrations, public privacy information, documentation, public-file checks, gitleaks CI and production HTTP smoke tests.
 
-This is a local server implementation. No Vercel/Turso deployment, remote repository, DNS configuration or instance-side integration has been performed.
+This repository provides a locally runnable server implementation. Vercel/Turso deployment, DNS setup and instance-side integration are separate steps described in the deployment guide.
 
 ## Run locally
 
