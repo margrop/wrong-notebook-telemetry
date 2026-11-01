@@ -4,9 +4,7 @@
   "private": true,
   "type": "module",
   "license": "MIT",
-  "engines": {
-    "node": ">=22.12.0"
-  },
+  "engines": { "node": ">=22.12.0" },
   "scripts": {
     "dev": "next dev --hostname 127.0.0.1",
     "build": "prisma generate && next build",
@@ -16,8 +14,10 @@
     "test": "vitest run",
     "test:unit": "vitest run tests/unit",
     "test:integration": "vitest run tests/integration",
+    "test:smoke": "node scripts/smoke.mjs",
     "db:generate": "prisma generate",
     "db:migrate": "tsx scripts/migrate.ts",
+    "password:hash": "node scripts/hash-password.mjs",
     "ci": "bash scripts/ci.sh",
     "postinstall": "prisma generate"
   },

@@ -8,7 +8,7 @@
 2. 在项目目录运行 `vercel integration discover --category storage` 确认当前 Turso 集成，再按当前 CLI 提示运行 `vercel integration add`。不把历史集成标识写死。
 3. 生产和 Preview 分别连接独立 Turso 数据库。确认 `TURSO_DATABASE_URL` / `TURSO_AUTH_TOKEN` 只注入对应环境；禁止预览库复用生产库。
 4. 用 `vercel env pull` 将开发环境变量拉到被忽略的 `.env.local`，或按 CLI 支持的环境参数拉取到受限临时目录。每次迁移前核对目标环境和数据库；备份生产库后显式运行 `npm run db:migrate`。不要在每次 Preview 构建时自动执行生产迁移。
-5. 用 `npm run password:hash` 交互生成 bcrypt 哈希；设置 `DASHBOARD_PASSWORD_HASH`，分别配置至少 32 字符的 `DASHBOARD_SESSION_SECRET` 和 `CRON_SECRET`。不要在 Shell 历史、命令参数、仓库或日志中直接放密码/令牌。
+5. 用 `npm run password:hash` 交互生成 bcrypt 哈希；平台环境变量填原始值，本地 `.env.local` 使用工具输出的美元符号转义写法，避免 Next.js 环境变量展开损坏哈希。设置 `DASHBOARD_PASSWORD_HASH`，分别配置至少 32 字符的 `DASHBOARD_SESSION_SECRET` 和 `CRON_SECRET`。不要在 Shell 历史、命令参数、仓库或日志中直接放密码/令牌。
 6. 从 `.env.example` 核对其余变量。预算按当前控制台额度与预留量配置，不照搬旧套餐数值；开启 Vercel/Turso 用量通知。
 7. 执行本地 `npm run ci`，部署 Preview 并完成下述验收后再发布 Production。
 

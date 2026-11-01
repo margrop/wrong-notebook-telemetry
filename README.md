@@ -4,35 +4,59 @@
 
 错题本独立的匿名统计收集服务，基于 `wrong-notebook/doc/TELEMETRY_DESIGN.md` v4。**源码公开，数据仅维护者可见。** MIT 许可证；不保存用户或实例标识、错误原文、题目或 AI 对话。
 
-## 开发状态
+## 已实现
 
-已提供批量 ingest、真实 libSQL 事务聚合、正式迁移、健康检查，以及每日清理、存储快照和预算保护。私有看板与登录按 [服务端设计](doc/SERVER_DESIGN.md) 在后续提交实现。尚未部署或公开发布。
+- 批量收集：每批最多 64KB / 100 条，逐条校验、部分拒收、日期窗口与内存限流。
+- 聚合存储：Next.js 16 + Prisma 5.22 + Turso/libSQL，只保存按天分组的计数，事务累加并兼容乱序错误上报。
+- 维护与控制：400 天保留期、每日存储快照、可配置预算降频、暂停与版本停用。
+- 私有看板：登录保护，日活/安装趋势、版本与部署形态、功能维度、AI 成功率/耗时、错误指纹趋势及人工状态和备注。
+- 本地正式迁移、隐私页、中英文文档、公开文件检查、gitleaks CI，以及生产 HTTP 冒烟。
 
-## 本地开发
+当前交付为本地服务端实现；尚未部署到 Vercel/Turso，未创建远程仓库或配置域名，也未接入错题本实例端。
+
+## 本地运行
 
 需要 Node.js 22.12+（22 LTS 至少 22.12，24 LTS 至少 24.0）。
 
 ```bash
 npm ci --registry=https://registry.npmjs.org
 cp .env.example .env.local
-# 编辑 .env.local，TURSO_DATABASE_URL 使用本地数据库的绝对路径。
+npm run password:hash
+```
+
+编辑 `.env.local`：将 `TURSO_DATABASE_URL` 设为持久化本地文件的**绝对路径**，填入生成的 bcrypt 哈希，并分别配置至少 32 字符的 `DASHBOARD_SESSION_SECRET` 与 `CRON_SECRET`。密码哈希工具提供本地转义写法；Next.js 会展开美元符号，不能把原始 bcrypt 字符串直接粘贴进 `.env.local`。Vercel 平台环境变量使用原始哈希。
+
+```bash
 npm run db:migrate
 npm run dev
 ```
 
-本地地址 `http://127.0.0.1:3000`。`npm run db:migrate` 使用 libSQL 写事务和校验和保护迁移历史，重复执行不清库。生产与 Preview 必须连接不同数据库；构建不会自动迁移。
+打开 `http://127.0.0.1:3000/dashboard`，用刚才设置的密码登录。开发 Cookie 允许本地 HTTP；生产 Cookie 强制 Secure，正式运行需 HTTPS。未配置凭据时关闭看板访问。
 
-## 收集 API
+`npm run db:migrate` 用 libSQL 写事务和校验和保护迁移历史，重复执行不清库。构建不自动迁移。生产和 Preview 必须使用不同数据库。
 
-`POST /api/v1/ingest` 不鉴权，只接受实例服务端 JSON；存在 Origin 头返回 403。最多 64KB、100 条，按 UTC 日期聚合，未知字段拒收。响应含 accepted/rejected/minIntervalSec；部分条目非法仍返回 200。无可信代理 IP 时所有请求共享每分钟十次的限流桶。
+## 接口
 
-`GET /api/v1/health` 检查数据库与正式表是否可用。完整协议、匿名统计局限及原设计兼容决策见 [设计文档](doc/SERVER_DESIGN.md)，合成测试向量见 [contract-v1.json](tests/fixtures/contract-v1.json)。不要向生产服务发送测试数据。
+| 路径 | 方法 | 访问 |
+| --- | --- | --- |
+| `/api/v1/ingest` | POST | 实例服务端匿名上报，不接受 Origin 头 |
+| `/api/v1/health` | GET | 数据库就绪检查 |
+| `/api/cron/maintain` | GET | CRON_SECRET Bearer 鉴权 |
+| `/api/dashboard/login`、`logout` | POST | 同源请求 |
+| `/api/dashboard/settings` | PATCH | 登录 + 同源 |
+| `/api/dashboard/errors/:fingerprint` | PATCH | 登录 + 同源 |
+| `/dashboard`、`/dashboard/settings` | 页面 | 登录 |
+| `/privacy` | 页面 | 公开 |
 
-## 每日维护与预算
+ingest 的 accepted/rejected 以条目计；部分非法条目仍返回 200，未知字段被拒绝。暂停会确认并丢弃当前批次，版本或协议停用返回 410。无可信代理来源时，调用共用每分钟十次限流桶。完整协议、原设计样例的兼容解释与隐私边界见 [服务端设计](doc/SERVER_DESIGN.md)。[测试向量](tests/fixtures/contract-v1.json) 均为合成数据，勿发到生产。
 
-`GET /api/cron/maintain` 仅接受 `CRON_SECRET` Bearer 鉴权；Vercel 配置每天 UTC 03:17 调用，Hobby 实际触发可在该小时内浮动。保留今天及此前 399 天的日统计，清理过期错误指纹；任务可重复执行，不清零计数。自建服务需自行调度。
+## 维护与用量
 
-维护保存聚合行数与数据库分配字节。可配置月批次、存储行数、数据库字节预算，70%/90% 阈值将最小发送间隔分别提高到至少 12/24 小时。默认不编造免费额度，应用计数不等于平台账单，仍需启用平台通知。配置与应急停用说明见 [部署文档](doc/DEPLOYMENT.md)。
+每天 UTC 03:17 执行维护，保留今天及此前 399 天的日统计，清理过期指纹并记录存储快照。Vercel Hobby 实际触发可在该小时内浮动；自建 Node.js 必须自行配置调度器。
+
+月批次、存储行数、数据库字节预算可选，默认不编造免费额度。配置预算达到 70%/90% 时，最小发送间隔自动提高到至少 12/24 小时。应用成功批次和数据库分配量不等于平台账单，需同时启用平台用量通知。
+
+统计可重复、漏报或伪造，只用于趋势参考。日活是 instance_alive 的近似计数；多日合计为实例天数，不能当作去重实例数。
 
 ## 验证
 
@@ -43,6 +67,8 @@ npm run test:integration
 npm run ci
 ```
 
-集成测试使用系统临时目录中的真实 libSQL，不访问生产或远程服务。完整 CI 含生产构建。公开文件检查：`python3 scripts/check-public-files.py`；GitHub CI 另做 gitleaks 密钥扫描。
+完整 CI 包含生成 Prisma Client、Lint、43 个单元测试、22 个真实数据库集成测试、生产构建、类型检查和真实 HTTP 冒烟。冒烟使用临时数据库启动生产服务器，验证登录、上报实际计数、私有页面保护、看板、错误标记、设置、维护与退出；结束后清理进程和临时数据，不访问外部服务。已有生产构建可运行 `npm run test:smoke` 单独检查。
 
-隐私：[中文](PRIVACY.md) / [English](PRIVACY.en.md)。[部署与 Firewall 计划](doc/DEPLOYMENT.md) 包含后续外部部署步骤，本地实现不表示已创建 Turso、Vercel、远程仓库或 DNS。
+公开前执行 `python3 scripts/check-public-files.py` 和 gitleaks；仓库 CI 包含两者。新工作副本运行 `git config core.hooksPath .githooks`。
+
+详见 [设计](doc/SERVER_DESIGN.md)、[部署/Firewall/验收步骤](doc/DEPLOYMENT.md)、[隐私说明](PRIVACY.md) / [Privacy](PRIVACY.en.md)。密钥、本地数据库、真实统计、截图与导出不得提交。

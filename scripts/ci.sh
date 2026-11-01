@@ -9,3 +9,4 @@ npm run test:unit
 npm run test:integration
 npm run build
 npm run typecheck
+npm run test:smoke
