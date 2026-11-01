@@ -1,4 +1,5 @@
 import "server-only";
+import { Prisma } from "@prisma/client";
 import type { PrismaClient } from "@prisma/client";
 import { canonicalPayload, utcDay } from "@/lib/ingest-contract";
 import type { ErrorItem, IngestItem } from "@/lib/ingest-contract";
@@ -42,36 +43,37 @@ export function groupItems(items: IngestItem[], version: string) {
 export async function aggregateBatch(db: PrismaClient, version: string, items: IngestItem[], rejected: number, now = new Date()): Promise<void> {
   const groups = groupItems(items, version);
   await db.$transaction(async tx => {
-    for (const group of groups.events) {
-      await tx.dailyEvent.upsert({
-        where: { day_version_name_payloadKey: { day: group.day, version, name: group.name, payloadKey: group.payloadKey } },
-        create: group, update: { count: { increment: group.count } },
-      });
+    if (groups.events.length) {
+      await tx.$executeRaw(Prisma.sql`
+        INSERT INTO "DailyEvent" ("day", "version", "name", "payloadKey", "count") VALUES
+        ${Prisma.join(groups.events.map(group => Prisma.sql`(${group.day}, ${version}, ${group.name}, ${group.payloadKey}, ${group.count})`))}
+        ON CONFLICT ("day", "version", "name", "payloadKey") DO UPDATE SET "count" = "count" + excluded."count"`);
     }
-    for (const group of groups.errors) {
-      await tx.dailyError.upsert({
-        where: { day_version_fingerprint: { day: group.day, version, fingerprint: group.fingerprint } },
-        create: group, update: { count: { increment: group.count } },
-      });
+    if (groups.errors.length) {
+      await tx.$executeRaw(Prisma.sql`
+        INSERT INTO "DailyError" ("day", "version", "fingerprint", "count") VALUES
+        ${Prisma.join(groups.errors.map(group => Prisma.sql`(${group.day}, ${version}, ${group.fingerprint}, ${group.count})`))}
+        ON CONFLICT ("day", "version", "fingerprint") DO UPDATE SET "count" = "count" + excluded."count"`);
     }
-    for (const group of groups.fingerprints) {
-      // 单条参数化 upsert 保证乱序/并发批次不会倒退首次、最近出现的日期和版本。
-      await tx.$executeRaw`
+    if (groups.fingerprints.length) {
+      // 每表一条多行 upsert，避免最大批次产生上百次 Turso 网络往返。
+      await tx.$executeRaw(Prisma.sql`
         INSERT INTO "ErrorFingerprint"
           ("fingerprint", "kind", "scope", "name", "firstSeenDay", "firstVersion", "lastSeenDay", "lastVersion", "total", "status")
-        VALUES (${group.fingerprint}, ${group.kind}, ${group.scope}, ${group.name}, ${group.firstSeenDay}, ${version},
-          ${group.lastSeenDay}, ${version}, ${group.count}, 'open')
+        VALUES ${Prisma.join(groups.fingerprints.map(group => Prisma.sql`(
+          ${group.fingerprint}, ${group.kind}, ${group.scope}, ${group.name}, ${group.firstSeenDay}, ${version},
+          ${group.lastSeenDay}, ${version}, ${group.count}, 'open')`))}
         ON CONFLICT ("fingerprint") DO UPDATE SET
           "firstVersion" = CASE WHEN excluded."firstSeenDay" < "firstSeenDay" THEN excluded."firstVersion" ELSE "firstVersion" END,
           "lastVersion" = CASE WHEN excluded."lastSeenDay" > "lastSeenDay" THEN excluded."lastVersion" ELSE "lastVersion" END,
           "firstSeenDay" = MIN("firstSeenDay", excluded."firstSeenDay"),
           "lastSeenDay" = MAX("lastSeenDay", excluded."lastSeenDay"),
-          "total" = "total" + excluded."total"`;
+          "total" = "total" + excluded."total"`);
     }
     const day = utcDay(now);
-    await tx.dailyUsage.upsert({
-      where: { day }, create: { day, batches: 1, items: items.length, rejected },
-      update: { batches: { increment: 1 }, items: { increment: items.length }, rejected: { increment: rejected } },
-    });
+    await tx.$executeRaw`
+      INSERT INTO "DailyUsage" ("day", "batches", "items", "rejected") VALUES (${day}, 1, ${items.length}, ${rejected})
+      ON CONFLICT ("day") DO UPDATE SET "batches" = "batches" + 1,
+        "items" = "items" + excluded."items", "rejected" = "rejected" + excluded."rejected"`;
   }, { timeout: 8000 });
 }

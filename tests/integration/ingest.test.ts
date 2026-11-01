@@ -44,6 +44,21 @@ describe("真实 libSQL 收集接口", () => {
     expect(await database.db.dailyEvent.findMany()).toMatchObject([{ count: 10, payloadKey: '{"duration":"3-10s","ok":true,"provider":"openai"}' }]);
     expect(await database.db.dailyUsage.findFirst()).toMatchObject({ batches: 9, items: 10 });
   });
+  it.each([0, 50, 100])("满100条分组（事件%s条，其余为错误）可重复累加，覆盖900参数边界", async eventCount => {
+    const post = handler();
+    const items = Array.from({ length: 100 }, (_, index) => index < eventCount
+      ? { ...event, payload: { provider: "openai", ok: true, shard: `group-${index}` } }
+      : { t: "error", day: "2026-11-01", kind: "server", scope: "api:ai", name: "TypeError", fingerprint: index.toString(16).padStart(16, "0") });
+    expect(await (await post(request(envelope(items)))).json()).toMatchObject({ accepted: 100, rejected: 0 });
+    expect(await (await post(request(envelope(items)))).json()).toMatchObject({ accepted: 100, rejected: 0 });
+    expect(await database.db.dailyEvent.count()).toBe(eventCount);
+    expect(await database.db.dailyError.count()).toBe(100 - eventCount);
+    expect(await database.db.errorFingerprint.count()).toBe(100 - eventCount);
+    expect((await database.db.dailyEvent.aggregate({ _sum: { count: true } }))._sum.count ?? 0).toBe(eventCount * 2);
+    expect((await database.db.dailyError.aggregate({ _sum: { count: true } }))._sum.count ?? 0).toBe((100 - eventCount) * 2);
+    expect((await database.db.errorFingerprint.aggregate({ _sum: { total: true } }))._sum.total ?? 0).toBe((100 - eventCount) * 2);
+    expect(await database.db.dailyUsage.findFirst()).toMatchObject({ batches: 2, items: 200, rejected: 0 });
+  });
   it("合法条目入库，非法条目拒收，整批成功避免无限重发", async () => {
     const response = await handler()(request(envelope([event, { ...event, message: "private" }, { ...event, payload: { text: "私密题目" } }, null])));
     expect(await response.json()).toMatchObject({ accepted: 1, rejected: 3 });
