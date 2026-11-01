@@ -6,11 +6,14 @@
 
 1. 创建 Vercel 项目 `wrong-notebook-telemetry`，生产分支设为 `main`，使用支持的 Node.js 22 或 24，默认 Node.js 运行时与 Fluid Compute。
 2. 在项目目录运行 `vercel integration discover --category storage` 确认当前 Turso 集成，再按当前 CLI 提示运行 `vercel integration add`。不把历史集成标识写死。
+   首次安装可能返回 `integration_terms_acceptance_required`。此时由账户持有人在返回的 `verification_uri` 中接受 Marketplace 条款，再继续创建免费资源；CLI 不会在非交互模式中替用户完成此步骤。
 3. 生产和 Preview 分别连接独立 Turso 数据库。确认 `TURSO_DATABASE_URL` / `TURSO_AUTH_TOKEN` 只注入对应环境；禁止预览库复用生产库。
 4. 用 `vercel env pull` 将开发环境变量拉到被忽略的 `.env.local`，或按 CLI 支持的环境参数拉取到受限临时目录。每次迁移前核对目标环境和数据库；备份生产库后显式运行 `npm run db:migrate`。不要在每次 Preview 构建时自动执行生产迁移。
 5. 用 `npm run password:hash` 交互生成 bcrypt 哈希；平台环境变量填原始值，本地 `.env.local` 使用工具输出的美元符号转义写法，避免 Next.js 环境变量展开损坏哈希。设置 `DASHBOARD_PASSWORD_HASH`，分别配置至少 32 字符的 `DASHBOARD_SESSION_SECRET` 和 `CRON_SECRET`。不要在 Shell 历史、命令参数、仓库或日志中直接放密码/令牌。
 6. 从 `.env.example` 核对其余变量。预算按当前控制台额度与预留量配置，不照搬旧套餐数值；开启 Vercel/Turso 用量通知。
 7. 执行本地 `npm run ci`，部署 Preview 并完成下述验收后再发布 Production。
+
+`.vercelignore` 明确排除所有 `.env*`、本地数据库、日志、导出与缓存；Git 忽略规则不能代替部署包检查。发布前用 `vercel deploy --dry --json` 核对清单，确认应用源码、Prisma schema、锁文件齐全，且凭据文件没有被上传。生成的看板密码仅保存到本机受限凭据文件或密码管理器，不打印到部署日志。
 
 Vercel 读取的是 **vercel.json**；原方案中的 vercel.ts 是概念文件名，不是本项目实际配置入口。每日 Cron 为 UTC `17 3 * * *`。截至 2026-11-01 核对的官方文档显示 Hobby 每个 Cron 最快每日一次，触发精度为小时级；任务不依赖精确分钟。非商用前提和套餐资格必须由部署者确认。
 
