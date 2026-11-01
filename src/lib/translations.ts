@@ -1,0 +1,47 @@
+export const t = {
+  appName: "错题本 · 匿名统计",
+  nav: { home: "返回首页", privacy: "隐私说明", dashboard: "维护者看板", stats: "统计", settings: "服务控制", privacyShort: "隐私" },
+  home: { eyebrow: "WRONG NOTEBOOK / TELEMETRY", intro: "接收匿名功能统计与错误指纹，帮助维护者观察功能使用趋势与定位故障。", access: "源码公开，统计数据仅维护者登录后可见。" },
+  dashboard: {
+    title: "使用趋势与运行情况",
+    privacy: "源码公开，数据仅维护者可见。统计来自匿名上报，可能存在重复、漏报或伪造，仅用于观察趋势。",
+    activeNote: "日活为 instance_alive 的近似计数；多日合计表示实例天数，不代表去重实例数。",
+    empty: "暂无数据",
+    cached: "查询结果最多缓存 5 分钟；所有日期均为 UTC。",
+    range: "统计范围", days: "天", activeToday: "今日日活实例（近似）", installs: "期间安装数", errors: "错误指纹上报次数",
+    activeTrend: "日活实例趋势", dailyCounts: "查看每日计数", versionShare: "版本占比（实例天数）", platformShare: "部署形态（实例天数）",
+    features: "功能使用", dimensions: "查看维度（计数最高的 500 个分组）", ai: "AI 成功率与耗时分布",
+    errorTrend: "错误每日趋势", usage: "用量与存储", monthlyBatches: "本月成功处理批次", monthlyItems: "接受条目", rejected: "拒收条目",
+    snapshot: "最近维护快照", eventRows: "事件分组行", errorRows: "错误分组行", fingerprintRows: "指纹行", bytes: "数据库分配字节",
+    usageNote: "这里只统计应用成功处理的批次和数据库页分配量，不包含平台拦截、失败调用、函数 CPU 或 Turso 行读写账单；需结合平台通知使用。未配置预算时不触发自动降频。",
+    quotaWarning: "应用预算达到预警比例：", spikes: "日活异常尖峰（超过前七日均值三倍且至少十次，请核查）",
+    unavailable: "暂时无法读取统计", retryNote: "请检查数据库连接和迁移状态后重试。", retry: "重试",
+  },
+  login: { title: "维护者登录", intro: "匿名统计与错误数据仅供维护者查看。", password: "看板密码", submit: "登录", pending: "正在登录…", failed: "登录失败，请稍后重试" },
+  controls: { save: "保存", saving: "正在保存…", saved: "已保存", failed: "保存失败，请稍后重试", logout: "退出登录", operationFailed: "操作失败，请重试" },
+  columns: { day: "UTC 日期", count: "计数", event: "事件", dimensions: "维度", provider: "提供商", successRate: "成功率", duration: "耗时分桶" },
+  errors: { status: "状态", open: "待处理", ignored: "忽略", fixed: "已修复", note: "维护者备注（勿填个人信息）", rangeCount: "期间次数", total: "累计次数",
+    first: "首次出现", last: "最近出现", limit: "按期间计数展示前 100 个指纹，编辑后最多五分钟反映到缓存视图。" },
+  settings: { title: "服务控制", notice: "设置最多五分钟内对全部函数实例生效。停用版本返回 410；暂停返回 200 并要求实例退避，暂停期间的批次会被丢弃。环境变量的应急设置优先。",
+    interval: "最小发送间隔（秒，至少六小时）", pause: "暂停至（UTC ISO 时间，留空解除）", versions: "停用应用版本（逗号分隔）", schemas: "停用协议版本（逗号分隔）", emergency: "当前环境变量应急设置" },
+  privacy: {
+    title: "收集服务隐私说明",
+    intro: "本服务接收由错题本实例发送的匿名统计与错误指纹，只保留按 UTC 日期聚合的计数。",
+    sections: [
+      { title: "保存什么", paragraphs: ["应用版本、事件名、短枚举或布尔维度，以及错误种类、scope、名称和 16 位指纹。相同分组只保存计数，不保存原始事件或精确上报时间。"] },
+      { title: "不保存什么", paragraphs: ["用户或实例标识、邮箱、Cookie、设备指纹、题目、OCR 文本、AI 对话、错误 message、stack、页面路径和 User-Agent 均不进入统计数据库。请求中的额外字段会被拒绝。"] },
+      { title: "限流与平台日志", paragraphs: [
+        "应用仅为限流临时读取可信代理提供的 IP，在进程内转换成带随机密钥的限流键；密钥随进程重启而变化。IP 和限流键均不写入数据库或应用日志。无法取得可信地址时，共用一个限流桶。",
+        "Vercel 等托管平台可能按其自身策略保存含 IP 的访问和安全日志，其保留时间由平台决定。应用不打印请求头、请求体或数据库凭据。",
+      ] },
+      { title: "保留与访问", paragraphs: [
+        "每日统计及用量记录保留 400 天；超过保留期未再出现的错误指纹也会删除。仍活跃指纹的首次出现信息与累计数随该指纹保留。维护者备注仅供维护者使用，请勿写入个人信息。",
+        "看板需密码登录，会话 Cookie 为 HttpOnly、SameSite=Strict，生产环境额外使用 Secure，有效期七天；该 Cookie 不用于遥测。",
+      ] },
+      { title: "控制与局限", paragraphs: [
+        "是否发送由错题本实例管理员控制。匿名上报无法关联到某位用户或某个实例，因此无法按身份查询或删除记录。统计可能受重试、离线和伪造数据影响，只作为趋势参考。",
+        "数据私有，源码采用 MIT 许可证公开，可使用同一份代码自建服务。",
+      ] },
+    ],
+  },
+};

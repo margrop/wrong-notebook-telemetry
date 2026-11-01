@@ -1,0 +1,47 @@
+{
+  "name": "wrong-notebook-telemetry",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "dev": "next dev --hostname 127.0.0.1",
+    "build": "prisma generate && next build",
+    "start": "next start --hostname 127.0.0.1",
+    "lint": "eslint . --max-warnings=0",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:unit": "vitest run tests/unit",
+    "test:integration": "vitest run tests/integration",
+    "db:generate": "prisma generate",
+    "db:migrate": "tsx scripts/migrate.ts",
+    "ci": "bash scripts/ci.sh",
+    "postinstall": "prisma generate"
+  },
+  "dependencies": {
+    "@libsql/client": "^0.8.1",
+    "@prisma/adapter-libsql": "5.22.0",
+    "@prisma/client": "5.22.0",
+    "bcryptjs": "^3.0.3",
+    "dotenv": "^18.0.9",
+    "next": "~16.4.3",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "server-only": "^0.0.1",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "eslint": "^9.0.0",
+    "eslint-config-next": "16.4.3",
+    "prisma": "5.22.0",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.5"
+  }
+}

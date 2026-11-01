@@ -1,0 +1,13 @@
+# Privacy
+
+This service stores counts aggregated by UTC day, application version and limited dimensions, error fingerprint counts, and maintainer settings. Source code is public; data is visible only to the maintainer.
+
+It does not store user or instance identifiers, questions, OCR content, AI conversations, raw error messages, stacks, paths or user agents. The ingest API does not use authentication cookies and rejects extra fields.
+
+For rate limiting only, the application temporarily reads a trusted proxy's source IP and derives an in-memory key with a random per-process HMAC secret. Neither the IP nor that key is persisted or logged. Hosting providers may retain access and security logs containing IP addresses under their own policies.
+
+Daily aggregates and application usage records are retained for 400 days. Fingerprints not seen within that window are removed; first-seen metadata and lifetime totals remain while a fingerprint stays active. Anonymous records cannot be located or deleted by individual or instance identity.
+
+The maintainer session cookie is HttpOnly, SameSite=Strict and Secure in production, expires after seven days, and is used only for dashboard access. Rotating the password or signing secret revokes existing sessions.
+
+Reports may be duplicated, missing or forged and are intended only for trend analysis. Instance administrators control forwarding; consent and opt-out behavior belong to the instance application.

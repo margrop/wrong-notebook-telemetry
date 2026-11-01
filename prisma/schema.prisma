@@ -1,0 +1,65 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["driverAdapters"]
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./unused.db"
+}
+
+/// 只存按天、版本、事件与规范化维度分组的计数。
+model DailyEvent {
+  day        String
+  version    String
+  name       String
+  payloadKey String
+  count      Int    @default(0)
+
+  @@id([day, version, name, payloadKey])
+  @@index([name, day])
+}
+
+model ErrorFingerprint {
+  fingerprint  String  @id
+  kind         String
+  scope        String
+  name         String
+  firstSeenDay String
+  firstVersion String
+  lastSeenDay  String
+  lastVersion  String
+  total        Int     @default(0)
+  status       String  @default("open")
+  note         String?
+
+  @@index([lastSeenDay])
+}
+
+model DailyError {
+  day         String
+  version     String
+  fingerprint String
+  count       Int    @default(0)
+
+  @@id([day, version, fingerprint])
+  @@index([fingerprint, day])
+}
+
+model ServiceSetting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}
+
+/// 可观测到的应用计数；不宣称等于 Vercel/Turso 平台账单。
+model DailyUsage {
+  day             String @id
+  batches         Int    @default(0)
+  items           Int    @default(0)
+  rejected        Int    @default(0)
+  eventRows       Int?
+  errorRows       Int?
+  fingerprintRows Int?
+  databaseBytes   BigInt?
+}
