@@ -2,14 +2,14 @@
 
 [简体中文](README.md)
 
-An independent anonymous telemetry collector for wrong-notebook, based on `doc/TELEMETRY_DESIGN.md` v4. **Source code is public; data is visible only to the maintainer.** MIT licensed. No user or instance identifiers, raw errors, questions, or AI conversations are stored.
+An independent anonymous telemetry collector for wrong-notebook, based on `doc/TELEMETRY_DESIGN.md` v5. **Source code is public; data is visible only to the maintainer.** MIT licensed. No user or instance identifiers, full error stacks, questions, or AI conversations are stored. Each error fingerprint keeps only the first sanitized message sample, top application frame, ID-free path, deployment platform and render digest.
 
 ## Implemented
 
 - Server-to-server JSON batches: 64KB / 100 items, partial rejection, date windows and in-memory rate limits.
-- Next.js 16, Prisma 5.22 and Turso/libSQL: daily aggregates, batched multi-row upserts, transactional counters and out-of-order error metadata.
+- Next.js 16, Prisma 5.22 and Turso/libSQL: daily aggregates plus first error samples, batched multi-row upserts, transactional counters and out-of-order error metadata grouped by deployment platform.
 - Daily maintenance, 400-day retention, storage snapshots, optional quota-based backoff, pause and disabled versions.
-- Password-protected dashboard: approximate active instances, installations, versions/platforms, feature dimensions, AI success/latency, error trends, statuses and notes.
+- Password-protected dashboard: approximate active instances, installations, versions/platforms, feature dimensions, AI success/latency, status-filtered errors with first samples, per-fingerprint detail, statuses and notes.
 - Versioned migrations, public privacy information, documentation, public-file checks, gitleaks CI and production HTTP smoke tests.
 
 This repository provides a locally runnable server implementation. Vercel/Turso deployment, DNS setup and instance-side integration are separate steps described in the deployment guide.
@@ -58,7 +58,7 @@ Anonymous reports may be duplicated, missing or forged. Active-instance counts a
 
 ## Validation
 
-Run `npm run lint`, `npm run test:unit`, `npm run test:integration`, or the complete `npm run ci`. CI includes 43 unit tests, 25 real-database integration tests, a production build, type checks and a real HTTP smoke test. Smoke tests start the production server with temporary credentials and a disposable database, validate persisted counts and protected routes, and remove their process and data afterward. They do not access external services. Use `npm run test:smoke` when a production build already exists.
+Run `npm run lint`, `npm run test:unit`, `npm run test:integration`, or the complete `npm run ci`. CI includes 44 unit tests, 27 real-database integration tests, a production build, type checks and a real HTTP smoke test. Smoke tests start the production server with temporary credentials and a disposable database, validate persisted counts, protocol v2 first samples and protected routes, and remove their process and data afterward. They do not access external services. Use `npm run test:smoke` when a production build already exists.
 
 Before publication, run `python3 scripts/check-public-files.py` and gitleaks; both are included in repository CI. Enable local hooks with `git config core.hooksPath .githooks`.
 
