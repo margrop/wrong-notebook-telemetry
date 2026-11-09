@@ -89,3 +89,13 @@ npm run ci
 - 用户明确要求提交、推送或发布即视为授权，不重复请求确认；未获相应授权时不擅自创建远程仓库、推送、打标签、部署或改 DNS。推送授权不自动包含部署和 DNS 操作。
 - 保留完整提交历史，不强推、不覆盖远程已有提交。先确认远程当前状态，遇到保护分支按规则处理。
 - 发布后检查 GitHub 实际 CI 结果，并确认本地 HEAD、`github/main` 与 `gitea/main` 的远程 SHA 相同，工作区干净。不要把 push 退出码或已创建的工作流视为最终验收。
+
+<!-- BEGIN:nextjs-agent-rules -->
+
+## This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
+<!-- END:nextjs-agent-rules -->
