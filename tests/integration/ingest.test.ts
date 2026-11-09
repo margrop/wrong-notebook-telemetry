@@ -1,6 +1,7 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { temporaryDatabase } from "../helpers/database";
-import vectors from "../fixtures/contract-v1.json";
+import v1 from "../fixtures/contract-v1.json";
+import v2 from "../fixtures/contract-v2.json";
 import { createIngestHandler } from "@/lib/ingest";
 import { RateLimiter } from "@/lib/rate-limit";
 import { invalidateSettings, saveServiceSettings } from "@/lib/service-settings";
@@ -26,16 +27,27 @@ beforeEach(async () => {
 afterEach(() => vi.unstubAllEnvs());
 
 describe("真实 libSQL 收集接口", () => {
-  it("接受完整契约并只保存聚合字段，不保存身份或原始错误", async () => {
-    const response = await handler()(request(vectors));
+  it("接受 v1 完整契约并只保存聚合字段，不保存身份或原始堆栈", async () => {
+    const response = await handler()(request(v1));
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ accepted: vectors.items.length, rejected: 0, minIntervalSec: 21600 });
+    expect(await response.json()).toEqual({ accepted: v1.items.length, rejected: 0, minIntervalSec: 21600 });
     expect(await database.db.dailyEvent.count()).toBe(14);
     expect(await database.db.dailyError.count()).toBe(3);
     const columns = await database.client.execute('PRAGMA table_info("ErrorFingerprint")');
     const names = columns.rows.map(row => row.name);
-    for (const forbidden of ["message", "stack", "ip", "userId", "instanceId", "path", "userAgent"]) expect(names).not.toContain(forbidden);
+    for (const forbidden of ["stack", "userAgent", "ip", "userId", "instanceId"]) expect(names).not.toContain(forbidden);
     expect(await database.db.dailyUsage.findFirst()).toMatchObject({ batches: 1, items: 17, rejected: 0, day: "2026-11-01" });
+  });
+  it("协议 v2 保存首次脱敏样本并按部署形态聚合", async () => {
+    const response = await handler()(request(v2));
+    expect(await response.json()).toMatchObject({ accepted: v2.items.length, rejected: 0 });
+    const sample = await database.db.errorFingerprint.findUniqueOrThrow({ where: { fingerprint: "a1b2c3d4e5f60718" } });
+    expect(sample).toMatchObject({ sampleMessage: "Failed to fetch exam paper for <email>",
+      sampleFrame: "at handler (/src/app/api/exams/route.ts)", samplePath: "/error-items/:id", samplePlatform: "docker" });
+    const platforms = await database.db.dailyError.findMany({ where: { fingerprint: { in: ["a1b2c3d4e5f60718", "b1b2c3d4e5f60718", "c1b2c3d4e5f60718"] } },
+      orderBy: { platform: "asc" } });
+    expect(platforms.map(row => [row.platform, row.count])).toEqual([["android", 1], ["docker", 1], ["npm", 1]]);
+    expect(await database.db.dailyUsage.findFirst()).toMatchObject({ batches: 1, items: 17, rejected: 0 });
   });
   it("批内合并和后续批次原子累加", async () => {
     const post = handler();
@@ -105,7 +117,7 @@ describe("真实 libSQL 收集接口", () => {
   });
   it("停用协议或版本返回 410；暂停时不写入", async () => {
     const post = handler();
-    expect((await post(request({ ...envelope(), schema: 2 }))).status).toBe(410);
+    expect((await post(request({ ...envelope(), schema: 3 }))).status).toBe(410);
     await saveServiceSettings(database.db, { ...settings, disabledVersions: ["2026.11.1"] });
     expect((await post(request(envelope()))).status).toBe(410);
     await saveServiceSettings(database.db, { ...settings, disabledSchemas: [1] });
@@ -116,7 +128,7 @@ describe("真实 libSQL 收集接口", () => {
   });
   it("乱序错误不会倒退首次和最近日期，人工状态不被上报覆盖", async () => {
     const post = handler();
-    const error = vectors.items[14];
+    const error = v1.items[14];
     const send = (day: string, version: string) => post(request({ ...envelope([{ ...error, day }]), version }));
     await send("2026-10-30", "2026.10.30");
     await database.db.errorFingerprint.update({ where: { fingerprint: "a1b2c3d4e5f60718" }, data: { status: "fixed", note: "issue-1" } });
@@ -128,7 +140,7 @@ describe("真实 libSQL 收集接口", () => {
   it("事务后段失败时事件、错误、指纹和用量一起回滚", async () => {
     await database.client.executeMultiple('CREATE TRIGGER "fail_usage" BEFORE INSERT ON "DailyUsage" BEGIN SELECT RAISE(ABORT, \'test failure\'); END;');
     try {
-      expect((await handler()(request(envelope([event, vectors.items[14]])))).status).toBe(503);
+      expect((await handler()(request(envelope([event, v1.items[14]])))).status).toBe(503);
       expect(await database.db.dailyEvent.count()).toBe(0);
       expect(await database.db.dailyError.count()).toBe(0);
       expect(await database.db.errorFingerprint.count()).toBe(0);

@@ -1,14 +1,17 @@
 import { describe, expect, it } from "vitest";
-import vectors from "../fixtures/contract-v1.json";
+import v1 from "../fixtures/contract-v1.json";
+import v2 from "../fixtures/contract-v2.json";
 import { canonicalPayload, envelopeSchema, itemSchema, validateItems } from "@/lib/ingest-contract";
 
 const now = new Date("2026-11-01T23:59:59.000Z");
 const event = { t: "event", day: "2026-11-01", name: "future_feature", payload: { enabled: true } };
 
-describe("上报协议 v1", () => {
-  it("接受设计中的全部事件、错误样例及未来事件名", () => {
-    expect(envelopeSchema.safeParse(vectors).success).toBe(true);
-    expect(validateItems(vectors.items, now)).toMatchObject({ rejected: 0 });
+describe("上报协议 v1/v2", () => {
+  it("接受 v1 与 v2 的全部事件、错误样例及未来事件名", () => {
+    for (const vectors of [v1, v2]) {
+      expect(envelopeSchema.safeParse(vectors).success).toBe(true);
+      expect(validateItems(vectors.items, now)).toMatchObject({ rejected: 0 });
+    }
     expect(itemSchema(now).safeParse(event).success).toBe(true);
   });
 
@@ -23,7 +26,7 @@ describe("上报协议 v1", () => {
   ])("拒绝事件上的额外字段 %j", extra => {
     expect(itemSchema(now).safeParse({ ...event, ...extra }).success).toBe(false);
   });
-  it.each(["user@example.com", "有中文内容", "contains spaces", "https://host/path", "x".repeat(33), 1, {}, null])("拒绝自由文本或非枚举形状 %j", value => {
+  it.each(["user@example.com", "有中文内容", "contains spaces", "https://host/path", "x".repeat(33), 1, {}, null])("拒绝事件维度中的自由文本或非枚举形状 %j", value => {
     expect(itemSchema(now).safeParse({ ...event, payload: { value } }).success).toBe(false);
   });
   it("拒绝超过八个维度以及原型保留字段", () => {
@@ -31,15 +34,25 @@ describe("上报协议 v1", () => {
     expect(itemSchema(now).safeParse({ ...event, payload: JSON.parse('{"constructor":true}') }).success).toBe(false);
   });
   it("错误条目只允许预定字段与固定形状", () => {
-    const error = vectors.items[14];
+    const error = v1.items[14];
     expect(itemSchema(now).safeParse({ ...error, fingerprint: "A1b2c3d4e5f60718" }).success).toBe(false);
     expect(itemSchema(now).safeParse({ ...error, kind: "unknown" }).success).toBe(false);
     expect(itemSchema(now).safeParse({ ...error, scope: "private error text" }).success).toBe(false);
-    expect(itemSchema(now).safeParse({ ...error, message: "private" }).success).toBe(false);
+    expect(itemSchema(now).safeParse({ ...error, stack: "at private" }).success).toBe(false);
+    expect(itemSchema(now).safeParse({ ...error, userAgent: "private" }).success).toBe(false);
+    expect(itemSchema(now).safeParse({ ...error, message: "Failed to fetch", frame: "at handler (/src/app/api/exams/route.ts)",
+      path: "/exams/:id", platform: "docker", digest: "a1b2c3d4" }).success).toBe(true);
+  });
+  it("错误摘要拒绝控制字符、过长文本与未知部署形态", () => {
+    const error = v2.items[14];
+    expect(itemSchema(now).safeParse({ ...error, message: "bad\u0000text" }).success).toBe(false);
+    expect(itemSchema(now).safeParse({ ...error, message: "x".repeat(201) }).success).toBe(false);
+    expect(itemSchema(now).safeParse({ ...error, platform: "mars" }).success).toBe(false);
+    expect(itemSchema(now).safeParse({ ...error, path: "/has space" }).success).toBe(false);
   });
   it("整体限制批量大小、版本、应用和额外身份字段", () => {
     for (const change of [{ items: [] }, { items: Array(101).fill(event) }, { app: "other" }, { version: "private version text" }, { instanceId: "ignored" }]) {
-      expect(envelopeSchema.safeParse({ ...vectors, ...change }).success).toBe(false);
+      expect(envelopeSchema.safeParse({ ...v1, ...change }).success).toBe(false);
     }
   });
   it("规范化键序并统一缺省与空维度", () => {

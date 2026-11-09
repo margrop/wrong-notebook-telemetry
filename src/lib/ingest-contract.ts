@@ -1,11 +1,14 @@
 import { z } from "zod";
 
-export const TELEMETRY_SCHEMA_VERSION = 1;
+/** 协议 v2：错误条目可选脱敏摘要、应用栈首帧、路径、部署形态与 digest；v1 仍被接受 */
+export const TELEMETRY_SCHEMA_VERSION = 2;
+export const SUPPORTED_SCHEMA_VERSIONS = [1, 2] as const;
 export const MAX_BATCH_BYTES = 64 * 1024;
 export const MAX_BATCH_ITEMS = 100;
 export const NAME_PATTERN = /^[a-z][a-z0-9_]{1,47}$/;
 export const TOKEN_PATTERN = /^[A-Za-z0-9_.<>+-]{1,32}$/;
 export const VERSION_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.+-]{0,47}$/;
+export const PLATFORMS = ["docker", "npm", "desktop", "fnos", "android", "other"] as const;
 const reservedKeys = new Set(["__proto__", "prototype", "constructor"]);
 
 const nameSchema = z.string().regex(NAME_PATTERN);
@@ -51,6 +54,12 @@ export function itemSchema(now: Date) {
       scope: z.string().regex(/^[A-Za-z0-9_.:\[\]-]{1,64}$/),
       name: z.string().regex(/^[A-Za-z][A-Za-z0-9_.-]{0,63}$/),
       fingerprint: z.string().regex(/^[0-9a-f]{16}$/),
+      // 协议 v2 可选字段；实例已脱敏并截断，收集服务只保留首次样本
+      message: z.string().min(1).max(200).refine(value => !/[\u0000-\u001f\u007f]/.test(value), "不得包含控制字符").optional(),
+      frame: z.string().min(1).max(200).refine(value => !/[\u0000-\u001f\u007f]/.test(value), "不得包含控制字符").optional(),
+      path: z.string().regex(/^\/[^\s\u0000-\u001f\u007f]{0,199}$/).optional(),
+      platform: z.enum(PLATFORMS).optional(),
+      digest: z.string().regex(/^[A-Za-z0-9_.-]{1,64}$/).optional(),
     }),
   ]);
 }

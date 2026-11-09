@@ -36,7 +36,7 @@ try {
   }
   const health = await fetch(`${base}/api/v1/health`);
   assert.equal(health.status, 200);
-  assert.deepEqual(await health.json(), { status: "ok", schema: 1 });
+  assert.deepEqual(await health.json(), { status: "ok", schema: 2 });
   for (const path of ["/dashboard", "/dashboard/settings"]) {
     const denied = await fetch(`${base}${path}`, { redirect: "manual" });
     assert.equal(denied.status, 307);
@@ -52,19 +52,20 @@ try {
   assert.match(cookieHeader, /__Host-wn-telemetry=.*HttpOnly.*SameSite=Strict.*Secure/);
   const cookie = cookieHeader.split(";")[0];
   const day = new Date().toISOString().slice(0, 10);
-  const body = { schema: 1, app: "wrong-notebook", version: "2026.11.1", items: [
+  const body = { schema: 2, app: "wrong-notebook", version: "2026.11.1", items: [
     { t: "event", day, name: "instance_alive", payload: { platform: "docker", aiConfigured: true } },
     { t: "event", day, name: "ai_analyze_result", payload: { ok: true, provider: "openai", duration: "3-10s" } },
-    { t: "error", day, kind: "server", scope: "api:ai", name: "TypeError", fingerprint: "a1b2c3d4e5f60718" },
-    { t: "error", day, kind: "server", scope: "api:ai", name: "TypeError", fingerprint: "a1b2c3d4e5f60718", message: "private" },
+    { t: "error", day, kind: "server", scope: "api:ai", name: "TypeError", fingerprint: "a1b2c3d4e5f60718",
+      message: "smoke failed for <email>", frame: "at handler (/src/app/api/ai/route.ts)", path: "/practice", platform: "docker" },
+    { t: "error", day, kind: "server", scope: "api:ai", name: "TypeError", fingerprint: "a1b2c3d4e5f60718", message: "later message" },
   ] };
   const ingested = await fetch(`${base}/api/v1/ingest`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   assert.equal(ingested.status, 200);
-  assert.deepEqual(await ingested.json(), { accepted: 3, rejected: 1, minIntervalSec: 21600 });
+  assert.deepEqual(await ingested.json(), { accepted: 4, rejected: 0, minIntervalSec: 21600 });
   const dashboard = await fetch(`${base}/dashboard`, { headers: { Cookie: cookie } });
   assert.equal(dashboard.status, 200);
   const html = await dashboard.text();
-  assert.ok(html.includes("openai") && html.includes("a1b2c3d4e5f60718"));
+  assert.ok(html.includes("openai") && html.includes("a1b2c3d4e5f60718") && html.includes("smoke failed for") && html.includes("/practice"));
   assert.equal((await post("/api/dashboard/errors/a1b2c3d4e5f60718", { status: "fixed", note: "smoke-issue" }, cookie, "PATCH")).status, 200);
   assert.equal((await post("/api/dashboard/settings", { minIntervalSec: 43200, pausedUntil: null, disabledVersions: [], disabledSchemas: [] }, cookie, "PATCH")).status, 200);
   const maintained = await fetch(`${base}/api/cron/maintain`, { headers: { Authorization: `Bearer ${cronSecret}` } });

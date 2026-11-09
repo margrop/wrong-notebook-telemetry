@@ -20,18 +20,24 @@ model DailyEvent {
   @@index([name, day])
 }
 
+/// 每个指纹只保存首次收到的脱敏样本；同批或后续上报只在样本缺失时补齐
 model ErrorFingerprint {
-  fingerprint  String  @id
-  kind         String
-  scope        String
-  name         String
-  firstSeenDay String
-  firstVersion String
-  lastSeenDay  String
-  lastVersion  String
-  total        Int     @default(0)
-  status       String  @default("open")
-  note         String?
+  fingerprint   String  @id
+  kind          String
+  scope         String
+  name          String
+  firstSeenDay  String
+  firstVersion  String
+  lastSeenDay   String
+  lastVersion   String
+  total         Int     @default(0)
+  status        String  @default("open")
+  note          String?
+  sampleMessage String?
+  sampleFrame   String?
+  samplePath    String?
+  samplePlatform String?
+  sampleDigest  String?
 
   @@index([lastSeenDay])
 }
@@ -39,10 +45,11 @@ model ErrorFingerprint {
 model DailyError {
   day         String
   version     String
+  platform    String  @default("other")
   fingerprint String
-  count       Int    @default(0)
+  count       Int     @default(0)
 
-  @@id([day, version, fingerprint])
+  @@id([day, version, platform, fingerprint])
   @@index([fingerprint, day])
 }
 

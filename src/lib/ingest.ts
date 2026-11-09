@@ -3,7 +3,7 @@ import type { PrismaClient } from "@prisma/client";
 import { aggregateBatch } from "@/lib/aggregate";
 import { apiError, jsonResponse } from "@/lib/api-errors";
 import { bodyErrorResponse, readJsonBody } from "@/lib/http";
-import { envelopeSchema, MAX_BATCH_BYTES, TELEMETRY_SCHEMA_VERSION, validateItems } from "@/lib/ingest-contract";
+import { envelopeSchema, MAX_BATCH_BYTES, SUPPORTED_SCHEMA_VERSIONS, validateItems } from "@/lib/ingest-contract";
 import { logger } from "@/lib/logger";
 import { ingestLimiter, requestRateKey } from "@/lib/rate-limit";
 import type { RateLimiter } from "@/lib/rate-limit";
@@ -21,7 +21,7 @@ export function createIngestHandler({ getDb, limiter = ingestLimiter, now = () =
       const envelope = envelopeSchema.safeParse(await readJsonBody(request, MAX_BATCH_BYTES));
       if (!envelope.success) return apiError("INVALID_ENVELOPE", "上报批次结构不合法", 400);
       const { schema, version, items } = envelope.data;
-      if (schema !== TELEMETRY_SCHEMA_VERSION) return apiError("SCHEMA_DISABLED", "协议版本已停用或不受支持", 410);
+      if (!(SUPPORTED_SCHEMA_VERSIONS as readonly number[]).includes(schema)) return apiError("SCHEMA_DISABLED", "协议版本已停用或不受支持", 410);
       const db = getDb();
       const settings = await getServiceSettings(db, timestamp.getTime());
       const control = effectiveIngestControl(settings, schema, version, timestamp);

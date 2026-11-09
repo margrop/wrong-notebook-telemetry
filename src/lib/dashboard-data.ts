@@ -1,36 +1,46 @@
 import "server-only";
 import { unstable_cache } from "next/cache";
 import { z } from "zod";
-import type { PrismaClient } from "@prisma/client";
+import type { ErrorFingerprint, PrismaClient } from "@prisma/client";
 import { shiftDay, utcDay } from "@/lib/ingest-contract";
 import { quotaDecision, readQuotaBudgets } from "@/lib/maintenance";
 import { getDatabase } from "@/lib/prisma";
 import { getServiceSettings } from "@/lib/service-settings";
 
 export const rangeSchema = z.enum(["7", "30", "90", "400"]);
+export const errorStatusSchema = z.enum(["open", "ignored", "fixed", "all"]);
 export type DashboardRange = z.infer<typeof rangeSchema>;
+export type ErrorStatus = z.infer<typeof errorStatusSchema>;
 const aiEvents = ["ai_analyze_result", "ai_reanswer"];
-
-export async function loadDashboard(db: PrismaClient, range: DashboardRange, now = new Date()) {
+export async function loadDashboard(db: PrismaClient, range: DashboardRange, now = new Date(), status: ErrorStatus = "open") {
   const to = utcDay(now);
   const from = shiftDay(to, -(Number(range) - 1));
   const where = { day: { gte: from, lte: to } };
-  const [totals, activity, versions, dimensions, aiDimensions, errorDays, topErrors, usage, month, settings] = await Promise.all([
+  const [totals, activity, versions, dimensions, aiDimensions, errorDays, usage, month, settings] = await Promise.all([
     db.dailyEvent.groupBy({ by: ["name"], where, _sum: { count: true }, orderBy: { _sum: { count: "desc" } } }),
     db.dailyEvent.groupBy({ by: ["day", "name"], where: { ...where, name: { in: ["instance_alive", "app_installed"] } }, _sum: { count: true }, orderBy: { day: "asc" } }),
     db.dailyEvent.groupBy({ by: ["version"], where: { ...where, name: "instance_alive" }, _sum: { count: true }, orderBy: { _sum: { count: "desc" } } }),
     db.dailyEvent.groupBy({ by: ["name", "payloadKey"], where, _sum: { count: true }, orderBy: { _sum: { count: "desc" } }, take: 500 }),
     db.dailyEvent.groupBy({ by: ["name", "payloadKey"], where: { ...where, name: { in: aiEvents } }, _sum: { count: true } }),
     db.dailyError.groupBy({ by: ["day"], where, _sum: { count: true }, orderBy: { day: "asc" } }),
-    db.dailyError.groupBy({ by: ["fingerprint"], where, _sum: { count: true }, orderBy: { _sum: { count: "desc" } }, take: 100 }),
     db.dailyUsage.findMany({ orderBy: { day: "desc" }, take: 1 }),
     db.dailyUsage.aggregate({ where: { day: { gte: `${to.slice(0, 7)}-01`, lte: to } }, _sum: { batches: true, items: true, rejected: true } }),
     getServiceSettings(db),
   ]);
+  // 先按人工状态取指纹，再聚合期间计数，避免已修复/忽略的错误占满前 100 名
+  const matching = await db.errorFingerprint.findMany({
+    where: status === "all" ? {} : { status }, select: { fingerprint: true }, orderBy: { lastSeenDay: "desc" }, take: 500,
+  });
+  const candidates = matching.map(row => row.fingerprint);
+  const topErrors = candidates.length ? await db.dailyError.groupBy({
+    by: ["fingerprint"], where: { ...where, fingerprint: { in: candidates } },
+    _sum: { count: true }, orderBy: { _sum: { count: "desc" } }, take: 100,
+  }) : [];
   const fingerprints = topErrors.map(row => row.fingerprint);
-  const [metadata, errorTrend, platforms] = await Promise.all([
+  const [metadata, errorTrend, errorPlatforms, platforms] = await Promise.all([
     db.errorFingerprint.findMany({ where: { fingerprint: { in: fingerprints } } }),
     db.dailyError.groupBy({ by: ["fingerprint", "day"], where: { ...where, fingerprint: { in: fingerprints } }, _sum: { count: true }, orderBy: { day: "asc" } }),
+    db.dailyError.groupBy({ by: ["fingerprint", "platform"], where: { ...where, fingerprint: { in: fingerprints } }, _sum: { count: true } }),
     db.dailyEvent.groupBy({ by: ["payloadKey"], where: { ...where, name: "instance_alive" }, _sum: { count: true } }),
   ]);
   const latest = usage[0];
@@ -38,7 +48,7 @@ export async function loadDashboard(db: PrismaClient, range: DashboardRange, now
     storageRows: (latest?.eventRows ?? 0) + (latest?.errorRows ?? 0) + (latest?.fingerprintRows ?? 0),
     databaseBytes: Number(latest?.databaseBytes ?? 0) }, readQuotaBudgets(), settings.minIntervalSec);
   return {
-    from, to, totals: totals.map(row => ({ name: row.name, count: row._sum.count ?? 0 })),
+    from, to, status, totals: totals.map(row => ({ name: row.name, count: row._sum.count ?? 0 })),
     activity: activity.map(row => ({ day: row.day, name: row.name, count: row._sum.count ?? 0 })),
     versions: versions.map(row => ({ label: row.version, count: row._sum.count ?? 0 })),
     dimensions: dimensions.map(row => ({ name: row.name, payload: row.payloadKey, count: row._sum.count ?? 0 })),
@@ -46,8 +56,11 @@ export async function loadDashboard(db: PrismaClient, range: DashboardRange, now
     errorDays: errorDays.map(row => ({ day: row.day, count: row._sum.count ?? 0 })),
     errors: topErrors.flatMap(row => {
       const info = metadata.find(item => item.fingerprint === row.fingerprint);
-      return info ? [{ ...info, count: row._sum.count ?? 0, trend: errorTrend.filter(item => item.fingerprint === row.fingerprint)
-        .map(item => ({ day: item.day, count: item._sum.count ?? 0 })) }] : [];
+      return info ? [{ ...info, count: row._sum.count ?? 0,
+        platforms: errorPlatforms.filter(item => item.fingerprint === row.fingerprint)
+          .map(item => ({ label: item.platform, count: item._sum.count ?? 0 })).sort((a, b) => b.count - a.count),
+        trend: errorTrend.filter(item => item.fingerprint === row.fingerprint)
+          .map(item => ({ day: item.day, count: item._sum.count ?? 0 })) }] : [];
     }),
     usage: latest ? { ...latest, databaseBytes: latest.databaseBytes?.toString() ?? null } : null,
     monthlyBatches: month._sum.batches ?? 0, monthlyItems: month._sum.items ?? 0, monthlyRejected: month._sum.rejected ?? 0,
@@ -83,7 +96,47 @@ function sumPlatforms(rows: Array<{ payloadKey: string; _sum: { count: number | 
 }
 
 export const getDashboardSnapshot = unstable_cache(
-  async (range: DashboardRange, day: string) => loadDashboard(getDatabase(), range, new Date(`${day}T12:00:00.000Z`)),
-  ["telemetry-dashboard-v1"], { revalidate: 300, tags: ["telemetry-dashboard"] },
+  async (range: DashboardRange, day: string, status: ErrorStatus) =>
+    loadDashboard(getDatabase(), range, new Date(`${day}T12:00:00.000Z`), status),
+  ["telemetry-dashboard-v2"], { revalidate: 300, tags: ["telemetry-dashboard"] },
 );
 export type DashboardSnapshot = Awaited<ReturnType<typeof loadDashboard>>;
+
+export interface ErrorDetailError extends ErrorFingerprint {
+  count: number;
+  trend: Array<{ day: string; count: number }>;
+  versions: Array<{ label: string; count: number }>;
+  platforms: Array<{ label: string; count: number }>;
+}
+export interface ErrorDetailSnapshot { from: string; to: string; error: ErrorDetailError | null }
+
+/** 单个错误指纹的详情：首次/最近、样本、按天/版本/部署形态趋势 */
+export async function loadErrorDetail(
+  db: PrismaClient, fingerprint: string, range: DashboardRange, now = new Date(),
+): Promise<ErrorDetailSnapshot> {
+  const to = utcDay(now);
+  const from = shiftDay(to, -(Number(range) - 1));
+  const where = { fingerprint, day: { gte: from, lte: to } };
+  const [info, trend, versions, platforms] = await Promise.all([
+    db.errorFingerprint.findUnique({ where: { fingerprint } }),
+    db.dailyError.groupBy({ by: ["day"], where, _sum: { count: true }, orderBy: { day: "asc" } }),
+    db.dailyError.groupBy({ by: ["version"], where, _sum: { count: true }, orderBy: { _sum: { count: "desc" } } }),
+    db.dailyError.groupBy({ by: ["platform"], where, _sum: { count: true }, orderBy: { _sum: { count: "desc" } } }),
+  ]);
+  return {
+    from, to,
+    error: info ? {
+      ...info,
+      count: trend.reduce((sum, row) => sum + (row._sum.count ?? 0), 0),
+      trend: trend.map(row => ({ day: row.day, count: row._sum.count ?? 0 })),
+      versions: versions.map(row => ({ label: row.version, count: row._sum.count ?? 0 })),
+      platforms: platforms.map(row => ({ label: row.platform, count: row._sum.count ?? 0 })),
+    } : null,
+  };
+}
+
+export const getErrorDetailSnapshot = unstable_cache(
+  async (fingerprint: string, range: DashboardRange, day: string): Promise<ErrorDetailSnapshot> =>
+    loadErrorDetail(getDatabase(), fingerprint, range, new Date(`${day}T12:00:00.000Z`)),
+  ["telemetry-error-detail-v1"], { revalidate: 300, tags: ["telemetry-dashboard"] },
+);

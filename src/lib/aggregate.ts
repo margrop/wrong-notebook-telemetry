@@ -2,11 +2,13 @@ import "server-only";
 import { Prisma } from "@prisma/client";
 import type { PrismaClient } from "@prisma/client";
 import { canonicalPayload, utcDay } from "@/lib/ingest-contract";
-import type { ErrorItem, IngestItem } from "@/lib/ingest-contract";
+import type { IngestItem } from "@/lib/ingest-contract";
 
 interface EventGroup { day: string; version: string; name: string; payloadKey: string; count: number }
-interface ErrorGroup { day: string; version: string; fingerprint: string; count: number }
-interface FingerprintGroup extends Omit<ErrorItem, "t" | "day"> {
+interface ErrorGroup { day: string; version: string; platform: string; fingerprint: string; count: number }
+interface FingerprintGroup {
+  fingerprint: string; kind: string; scope: string; name: string;
+  sampleMessage?: string; sampleFrame?: string; samplePath?: string; sampleDigest?: string; samplePlatform: string;
   firstSeenDay: string; lastSeenDay: string; version: string; count: number;
 }
 
@@ -22,18 +24,25 @@ export function groupItems(items: IngestItem[], version: string) {
       if (group) group.count += 1;
       else events.set(key, { day: item.day, version, name: item.name, payloadKey, count: 1 });
     } else {
-      const key = JSON.stringify([item.day, version, item.fingerprint]);
+      const platform = item.platform ?? "other";
+      const key = JSON.stringify([item.day, version, platform, item.fingerprint]);
       const group = errors.get(key);
       if (group) group.count += 1;
-      else errors.set(key, { day: item.day, version, fingerprint: item.fingerprint, count: 1 });
+      else errors.set(key, { day: item.day, version, platform, fingerprint: item.fingerprint, count: 1 });
       const fingerprint = fingerprints.get(item.fingerprint);
       if (fingerprint) {
         fingerprint.count += 1;
         if (item.day < fingerprint.firstSeenDay) fingerprint.firstSeenDay = item.day;
         if (item.day > fingerprint.lastSeenDay) fingerprint.lastSeenDay = item.day;
+        fingerprint.sampleMessage ??= item.message;
+        fingerprint.sampleFrame ??= item.frame;
+        fingerprint.samplePath ??= item.path;
+        fingerprint.sampleDigest ??= item.digest;
       } else {
         fingerprints.set(item.fingerprint, { fingerprint: item.fingerprint, kind: item.kind, scope: item.scope,
-          name: item.name, firstSeenDay: item.day, lastSeenDay: item.day, version, count: 1 });
+          name: item.name, firstSeenDay: item.day, lastSeenDay: item.day, version, count: 1,
+          samplePlatform: platform, sampleMessage: item.message, sampleFrame: item.frame,
+          samplePath: item.path, sampleDigest: item.digest });
       }
     }
   }
@@ -51,24 +60,32 @@ export async function aggregateBatch(db: PrismaClient, version: string, items: I
     }
     if (groups.errors.length) {
       await tx.$executeRaw(Prisma.sql`
-        INSERT INTO "DailyError" ("day", "version", "fingerprint", "count") VALUES
-        ${Prisma.join(groups.errors.map(group => Prisma.sql`(${group.day}, ${version}, ${group.fingerprint}, ${group.count})`))}
-        ON CONFLICT ("day", "version", "fingerprint") DO UPDATE SET "count" = "count" + excluded."count"`);
+        INSERT INTO "DailyError" ("day", "version", "platform", "fingerprint", "count") VALUES
+        ${Prisma.join(groups.errors.map(group => Prisma.sql`(${group.day}, ${version}, ${group.platform}, ${group.fingerprint}, ${group.count})`))}
+        ON CONFLICT ("day", "version", "platform", "fingerprint") DO UPDATE SET "count" = "count" + excluded."count"`);
     }
     if (groups.fingerprints.length) {
       // 每表一条多行 upsert，避免最大批次产生上百次 Turso 网络往返。
       await tx.$executeRaw(Prisma.sql`
         INSERT INTO "ErrorFingerprint"
-          ("fingerprint", "kind", "scope", "name", "firstSeenDay", "firstVersion", "lastSeenDay", "lastVersion", "total", "status")
+          ("fingerprint", "kind", "scope", "name", "firstSeenDay", "firstVersion", "lastSeenDay", "lastVersion", "total", "status",
+           "sampleMessage", "sampleFrame", "samplePath", "samplePlatform", "sampleDigest")
         VALUES ${Prisma.join(groups.fingerprints.map(group => Prisma.sql`(
           ${group.fingerprint}, ${group.kind}, ${group.scope}, ${group.name}, ${group.firstSeenDay}, ${version},
-          ${group.lastSeenDay}, ${version}, ${group.count}, 'open')`))}
+          ${group.lastSeenDay}, ${version}, ${group.count}, 'open',
+          ${group.sampleMessage ?? null}, ${group.sampleFrame ?? null}, ${group.samplePath ?? null},
+          ${group.samplePlatform}, ${group.sampleDigest ?? null})`))}
         ON CONFLICT ("fingerprint") DO UPDATE SET
           "firstVersion" = CASE WHEN excluded."firstSeenDay" < "firstSeenDay" THEN excluded."firstVersion" ELSE "firstVersion" END,
           "lastVersion" = CASE WHEN excluded."lastSeenDay" > "lastSeenDay" THEN excluded."lastVersion" ELSE "lastVersion" END,
           "firstSeenDay" = MIN("firstSeenDay", excluded."firstSeenDay"),
           "lastSeenDay" = MAX("lastSeenDay", excluded."lastSeenDay"),
-          "total" = "total" + excluded."total"`);
+          "total" = "total" + excluded."total",
+          "sampleMessage" = COALESCE("sampleMessage", excluded."sampleMessage"),
+          "sampleFrame" = COALESCE("sampleFrame", excluded."sampleFrame"),
+          "samplePath" = COALESCE("samplePath", excluded."samplePath"),
+          "samplePlatform" = COALESCE("samplePlatform", excluded."samplePlatform"),
+          "sampleDigest" = COALESCE("sampleDigest", excluded."sampleDigest")`);
     }
     const day = utcDay(now);
     await tx.$executeRaw`
